@@ -74,7 +74,7 @@ export const login = async (req, res, next) => {
 // @route   GET /api/auth/google/callback
 export const googleCallback = (req, res) => {
   if (!req.user) {
-    const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendURL = process.env.FRONTEND_URL;
     return res.redirect(`${frontendURL}/login?error=auth_failed`);
   }
 

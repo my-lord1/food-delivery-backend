@@ -44,6 +44,6 @@ export const sendTokenRedirect = (user, res) => {
     sameSite: 'lax' 
   };
 
-  const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendURL = process.env.FRONTEND_URL;
   res.cookie('token', token, options).redirect(`${frontendURL}/login-success?token=${token}`);
 };
