@@ -2,6 +2,7 @@ import User from '../models/User.js';
 import { sendTokenResponse, sendTokenRedirect } from '../utils/tokenUtils.js';
 
 // @route   POST /api/auth/register
+// @route   POST /api/auth/register
 export const register = async (req, res, next) => {
   try {
     const { name, email, password, phone, role } = req.body;
@@ -9,7 +10,6 @@ export const register = async (req, res, next) => {
     const existingUser = await User.findOne({ email });
     
     if (existingUser) {
-      // EXCLUSIVE CHECK: If they are a Google user, tell them to use Google
       if (existingUser.authProvider === 'google') {
         return res.status(400).json({
           success: false,
@@ -22,21 +22,30 @@ export const register = async (req, res, next) => {
       });
     }
 
-    const user = await User.create({
+    // --- FIX START ---
+    // Prepare the user data object
+    const userData = {
       name,
       email,
       password,
-      phone,
       role: role || 'customer',
-      authProvider: 'local' // Explicitly set local
-    });
+      authProvider: 'local'
+    };
+
+    // Only add phone to the object if it is NOT empty
+    if (phone && phone.trim() !== '') {
+      userData.phone = phone;
+    }
+    // --- FIX END ---
+
+    // Create user with the cleaned data
+    const user = await User.create(userData);
 
     sendTokenResponse(user, 201, res);
   } catch (error) {
     next(error);
   }
 };
-
 // @route   POST /api/auth/login
 export const login = async (req, res, next) => {
   try {
