@@ -23,7 +23,26 @@ const userSchema = new mongoose.Schema(
     password: {
       type: String,
       minlength: [6, 'Password must be at least 6 characters'],
-      select: false
+      select: false,
+      validate: {
+        validator: function (value) {
+          // Password is required ONLY if authProvider is 'local'
+          if (this.authProvider === 'local' && !value) {
+            return false;
+          }
+          return true;
+        },
+        message: 'Password is required for email registration'
+      }
+    },
+    authProvider: {
+      type: String,
+      enum: ['local', 'google'],
+      default: 'local'
+    },
+    googleId: {
+      type: String,
+      sparse: true
     },
     phone: {
       type: String,
@@ -35,35 +54,19 @@ const userSchema = new mongoose.Schema(
       enum: ['customer', 'restaurant_owner'],
       default: 'customer'
     },
-    authProvider: {
-      type: String,
-      enum: ['local', 'google'],
-      default: 'local'
-    },
-    googleId: {
-      type: String,
-      sparse: true
-    },
     avatar: {
       type: String,
       default: 'https://res.cloudinary.com/demo/image/upload/avatar-placeholder.png'
     },
     addresses: [
       {
-        label: {
-          type: String,
-          enum: ['home', 'work', 'other'],
-          default: 'home'
-        },
+        label: { type: String, enum: ['home', 'work', 'other'], default: 'home' },
         street: String,
         city: String,
         state: String,
         pincode: String,
         landmark: String,
-        isDefault: {
-          type: Boolean,
-          default: false
-        }
+        isDefault: { type: Boolean, default: false }
       }
     ],
     favoriteRestaurants: [
@@ -74,14 +77,8 @@ const userSchema = new mongoose.Schema(
     ],
     favoriteMenuItems: [
       {
-        restaurant: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Restaurant'
-        },
-        menuItem: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'MenuItem'
-        }
+        restaurant: { type: mongoose.Schema.Types.ObjectId, ref: 'Restaurant' },
+        menuItem: { type: mongoose.Schema.Types.ObjectId, ref: 'MenuItem' }
       }
     ],
     savedPaymentMethods: [
@@ -91,14 +88,8 @@ const userSchema = new mongoose.Schema(
         cardLast4: String,
         cardBrand: String,
         cardNetwork: String,
-        isDefault: {
-          type: Boolean,
-          default: false
-        },
-        createdAt: {
-          type: Date,
-          default: Date.now
-        }
+        isDefault: { type: Boolean, default: false },
+        createdAt: { type: Date, default: Date.now }
       }
     ],
     restaurant: {
@@ -119,26 +110,21 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+// Encrypt password using bcrypt
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
-    return next();
+    next();
   }
   
   if (this.password) {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
   }
-  next();
 });
 
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-userSchema.methods.toJSON = function () {
-  const obj = this.toObject();
-  delete obj.password;
-  return obj;
+// Match user entered password to hashed password in database
+userSchema.methods.comparePassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
 };
 
 const User = mongoose.model('User', userSchema);

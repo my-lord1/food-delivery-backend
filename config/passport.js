@@ -1,41 +1,43 @@
 import dotenv from 'dotenv';
-// 1. Initialize dotenv immediately, before using process.env
 dotenv.config();
 
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import User from '../models/User.js';
 
-// In config/passport.js
 passport.use(
   new GoogleStrategy(
     {
-      clientID: process.env.GOOGLE_CLIENT_ID, // Now this will work
+      clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
       passReqToCallback: true 
     },
     async (req, accessToken, refreshToken, profile, done) => {
       try {
-        // Note: Ensure your initial auth request included specific 'state' params
-        // for this to work. Otherwise, it defaults to 'customer'.
         const selectedRole = req.query.state || 'customer'; 
         
         let user = await User.findOne({ email: profile.emails[0].value });
 
         if (user) {
+          // STRICT CHECK: If user registered via Email/Password (local), BLOCK Google Login
+          if (user.authProvider === 'local') {
+            return done(null, false, { message: 'Please login with your email and password' });
+          }
+
+          // If user is already Google, update ID and login
           user.googleId = profile.id;
-          user.role = selectedRole; 
           await user.save();
           return done(null, user);
         }
 
+        // Create new Google User
         user = await User.create({
           googleId: profile.id,
           name: profile.displayName,
           email: profile.emails[0].value,
           avatar: profile.photos[0]?.value,
-          authProvider: 'google',
+          authProvider: 'google', // Explicitly set provider
           role: selectedRole,
           isEmailVerified: true
         });

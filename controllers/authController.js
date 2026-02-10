@@ -1,5 +1,5 @@
 import User from '../models/User.js';
-import { sendTokenResponse, sendTokenRedirect, generateToken } from '../utils/tokenUtils.js';
+import { sendTokenResponse, sendTokenRedirect } from '../utils/tokenUtils.js';
 
 // @route   POST /api/auth/register
 export const register = async (req, res, next) => {
@@ -7,7 +7,15 @@ export const register = async (req, res, next) => {
     const { name, email, password, phone, role } = req.body;
 
     const existingUser = await User.findOne({ email });
+    
     if (existingUser) {
+      // EXCLUSIVE CHECK: If they are a Google user, tell them to use Google
+      if (existingUser.authProvider === 'google') {
+        return res.status(400).json({
+          success: false,
+          message: 'This email is already registered with Google. Please login with Google.'
+        });
+      }
       return res.status(400).json({
         success: false,
         message: 'User already exists with this email'
@@ -19,7 +27,8 @@ export const register = async (req, res, next) => {
       email,
       password,
       phone,
-      role: role || 'customer'
+      role: role || 'customer',
+      authProvider: 'local' // Explicitly set local
     });
 
     sendTokenResponse(user, 201, res);
@@ -49,10 +58,11 @@ export const login = async (req, res, next) => {
       });
     }
 
-    if (user.authProvider === 'google' && !user.password) {
+    // EXCLUSIVE CHECK: Block Google users from using password login
+    if (user.authProvider === 'google') {
       return res.status(400).json({
         success: false,
-        message: 'Please login with Google'
+        message: 'This account uses Google Sign-In. Please login with Google.'
       });
     }
 
@@ -73,9 +83,11 @@ export const login = async (req, res, next) => {
 
 // @route   GET /api/auth/google/callback
 export const googleCallback = (req, res) => {
+  // If passport returned 'false' (because of our check in passport.js), req.user will be undefined
+  // We should not reach here if the route handles the redirect properly, but as a fallback:
   if (!req.user) {
     const frontendURL = process.env.FRONTEND_URL;
-    return res.redirect(`${frontendURL}/login?error=auth_failed`);
+    return res.redirect(`${frontendURL}/login?error=account_exists_local`);
   }
 
   sendTokenRedirect(req.user, res);
@@ -86,14 +98,8 @@ export const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
       .populate('favoriteRestaurants', 'name cuisineType averageRating images')
-      .populate({
-        path: 'favoriteMenuItems.restaurant',
-        select: 'name'
-      })
-      .populate({
-        path: 'favoriteMenuItems.menuItem',
-        select: 'name price image'
-      });
+      .populate('favoriteMenuItems.restaurant', 'name')
+      .populate('favoriteMenuItems.menuItem', 'name price image');
       
     if (!user) {
        return res.status(404).json({ success: false, message: 'User not found' });
@@ -107,7 +113,6 @@ export const getMe = async (req, res, next) => {
     next(error);
   }
 };
-
 
 // @route   PUT /api/auth/profile
 export const updateProfile = async (req, res, next) => {
@@ -137,10 +142,11 @@ export const updatePassword = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select('+password');
 
-    if (user.authProvider === 'google' && !user.password) {
+    // Google users don't have passwords to update
+    if (user.authProvider === 'google') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot update password for Google OAuth accounts'
+        message: 'Google accounts cannot change password here.'
       });
     }
 
@@ -182,14 +188,9 @@ export const logout = async (req, res, next) => {
 export const addAddress = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
-    
     user.addresses.unshift(req.body);
     await user.save();
-
-    res.status(200).json({
-      success: true,
-      data: user
-    });
+    res.status(200).json({ success: true, data: user });
   } catch (error) {
     next(error);
   }
@@ -199,26 +200,15 @@ export const addAddress = async (req, res, next) => {
 export const updateAddress = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
-    
-    const addressIndex = user.addresses.findIndex(
-      addr => addr._id.toString() === req.params.addressId
-    );
+    const addressIndex = user.addresses.findIndex(addr => addr._id.toString() === req.params.addressId);
 
     if (addressIndex === -1) {
       return res.status(404).json({ success: false, message: 'Address not found' });
     }
 
-    user.addresses[addressIndex] = { 
-      ...user.addresses[addressIndex].toObject(), 
-      ...req.body 
-    };
-    
+    user.addresses[addressIndex] = { ...user.addresses[addressIndex].toObject(), ...req.body };
     await user.save();
-
-    res.status(200).json({
-      success: true,
-      data: user
-    });
+    res.status(200).json({ success: true, data: user });
   } catch (error) {
     next(error);
   }
@@ -228,17 +218,9 @@ export const updateAddress = async (req, res, next) => {
 export const deleteAddress = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
-    
-    user.addresses = user.addresses.filter(
-      addr => addr._id.toString() !== req.params.addressId
-    );
-    
+    user.addresses = user.addresses.filter(addr => addr._id.toString() !== req.params.addressId);
     await user.save();
-
-    res.status(200).json({
-      success: true,
-      data: user
-    });
+    res.status(200).json({ success: true, data: user });
   } catch (error) {
     next(error);
   }
