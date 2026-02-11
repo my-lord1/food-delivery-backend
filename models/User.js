@@ -26,7 +26,6 @@ const userSchema = new mongoose.Schema(
       select: false,
       validate: {
         validator: function (value) {
-          // Password is required ONLY if authProvider is 'local'
           if (this.authProvider === 'local' && !value) {
             return false;
           }
@@ -60,7 +59,7 @@ const userSchema = new mongoose.Schema(
     },
     addresses: [
       {
-        label: { type: String, enum: ['home', 'work', 'other'], default: 'home' },
+        label: { type: String, enum: ['home', 'work', 'other', 'Home', 'Work', 'Other'], default: 'home' },
         street: String,
         city: String,
         state: String,
@@ -100,6 +99,8 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true
     },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
     isEmailVerified: {
       type: Boolean,
       default: false
@@ -110,7 +111,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Encrypt password using bcrypt
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     next();
@@ -122,7 +122,6 @@ userSchema.pre('save', async function (next) {
   }
 });
 
-// Match user entered password to hashed password in database
 userSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };

@@ -1,7 +1,10 @@
 import User from '../models/User.js';
+import crypto from 'crypto';
+import sgMail from '@sendgrid/mail';
 import { sendTokenResponse, sendTokenRedirect } from '../utils/tokenUtils.js';
 
-// @route   POST /api/auth/register
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
 // @route   POST /api/auth/register
 export const register = async (req, res, next) => {
   try {
@@ -22,8 +25,6 @@ export const register = async (req, res, next) => {
       });
     }
 
-    // --- FIX START ---
-    // Prepare the user data object
     const userData = {
       name,
       email,
@@ -32,13 +33,10 @@ export const register = async (req, res, next) => {
       authProvider: 'local'
     };
 
-    // Only add phone to the object if it is NOT empty
     if (phone && phone.trim() !== '') {
       userData.phone = phone;
     }
-    // --- FIX END ---
 
-    // Create user with the cleaned data
     const user = await User.create(userData);
 
     sendTokenResponse(user, 201, res);
@@ -46,6 +44,7 @@ export const register = async (req, res, next) => {
     next(error);
   }
 };
+
 // @route   POST /api/auth/login
 export const login = async (req, res, next) => {
   try {
@@ -67,7 +66,6 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // EXCLUSIVE CHECK: Block Google users from using password login
     if (user.authProvider === 'google') {
       return res.status(400).json({
         success: false,
@@ -92,8 +90,6 @@ export const login = async (req, res, next) => {
 
 // @route   GET /api/auth/google/callback
 export const googleCallback = (req, res) => {
-  // If passport returned 'false' (because of our check in passport.js), req.user will be undefined
-  // We should not reach here if the route handles the redirect properly, but as a fallback:
   if (!req.user) {
     const frontendURL = process.env.FRONTEND_URL;
     return res.redirect(`${frontendURL}/login?error=account_exists_local`);
@@ -151,7 +147,6 @@ export const updatePassword = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select('+password');
 
-    // Google users don't have passwords to update
     if (user.authProvider === 'google') {
       return res.status(400).json({
         success: false,
@@ -230,6 +225,92 @@ export const deleteAddress = async (req, res, next) => {
     user.addresses = user.addresses.filter(addr => addr._id.toString() !== req.params.addressId);
     await user.save();
     res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+// @route   POST /api/auth/forgot-password
+export const forgotPassword = async (req, res, next) => {
+  let user; 
+
+  try {
+    const { email } = req.body;
+    
+    user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.authProvider === 'google') {
+      return res.status(400).json({
+        success: false,
+        message: 'This account uses Google Login. Please sign in with Google.'
+      });
+    }
+
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
+    await user.save({ validateBeforeSave: false });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    const msg = {
+      to: user.email,
+      from: process.env.EMAIL_FROM, 
+      subject: 'Password Reset Request',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #f97316;">giggidy Password Reset</h2>
+          <p>You requested a password reset for your account.</p>
+          <a href="${resetUrl}" style="display: inline-block; padding: 12px 24px; background-color: #f97316; color: white; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: bold;">Reset Password</a>
+          <p>Or copy this link:</p>
+          <p style="color: #666; word-break: break-all;">${resetUrl}</p>
+          <p style="color: #999; font-size: 12px;">Expires in 10 minutes.</p>
+        </div>
+      `,
+    };
+
+    await sgMail.send(msg);
+
+    res.status(200).json({ success: true, message: 'Email sent successfully' });
+
+  } catch (error) {
+    if (user) {
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save({ validateBeforeSave: false });
+    }
+    
+    return next(error);
+  }
+};
+
+// @route   PUT /api/auth/reset-password/:resettoken
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { resettoken } = req.params;
+    const { password } = req.body;
+    const user = await User.findOne({
+      resetPasswordToken: resettoken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+
+    await user.save();
+    sendTokenResponse(user, 200, res);
+
   } catch (error) {
     next(error);
   }
