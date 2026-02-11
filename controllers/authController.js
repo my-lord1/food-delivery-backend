@@ -48,7 +48,7 @@ export const register = async (req, res, next) => {
 // @route   POST /api/auth/login
 export const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -81,6 +81,12 @@ export const login = async (req, res, next) => {
         message: 'Invalid credentials'
       });
     }
+
+    if (role) {
+      user.role = role;
+      await user.save();
+    }
+
 
     sendTokenResponse(user, 200, res);
   } catch (error) {
