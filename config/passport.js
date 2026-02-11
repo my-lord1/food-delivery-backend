@@ -15,7 +15,7 @@ passport.use(
     },
     async (req, accessToken, refreshToken, profile, done) => {
       try {
-        const selectedRole = req.query.role || 'customer'; 
+        const selectedRole = req.query.state || 'customer'; 
         
         let user = await User.findOne({ email: profile.emails[0].value });
 
