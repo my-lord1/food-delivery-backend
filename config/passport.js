@@ -15,7 +15,7 @@ passport.use(
     },
     async (req, accessToken, refreshToken, profile, done) => {
       try {
-        const selectedRole = req.query.state || 'customer'; 
+        const selectedRole = req.query.role || 'customer'; 
         
         let user = await User.findOne({ email: profile.emails[0].value });
 
@@ -25,8 +25,9 @@ passport.use(
             return done(null, false, { message: 'Please login with your email and password' });
           }
 
-          // If user is already Google, update ID and login
+          // If user is already Google, update ID and role based on current selection
           user.googleId = profile.id;
+          user.role = selectedRole;
           await user.save();
           return done(null, user);
         }
